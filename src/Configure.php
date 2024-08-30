@@ -348,7 +348,6 @@ class Configure
     public function get(string $name = null, $default = null)
     {
         $this->parseConfig();
-
         $nameArr = explode('.', $name);
         $config = $this->data;
         foreach ($nameArr as $key) {
