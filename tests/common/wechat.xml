@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<ruleset>
+    <username>hehex</username>
+    <password>123456</password>
+    <email>hehex@qq.com</email>
+    <admin>
+        <name>admin</name>
+        <role>超级管理员</role>
+    </admin>
+</ruleset>
+

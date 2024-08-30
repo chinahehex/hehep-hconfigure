@@ -1,0 +1,23 @@
+{
+	"name": "hehex/hehep-hconfigure",
+	"description": "hehep-hconfigure 是一个PHP 配置基础组件，支持缓存功能",
+	"license": "Apache-2.0",
+	"authors": [
+		{
+			"name": "hehe"
+		}
+	],
+	"require": {
+		"php": ">=7.1"
+	},
+	"autoload": {
+		"psr-4": {
+			"hehe\\core\\hconfigure\\": "src/"
+		}
+	},
+	"autoload-dev": {
+		"psr-4": {
+			"hconfigure\\test": "tests/"
+		}
+	}
+}

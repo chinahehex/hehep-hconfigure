@@ -1,0 +1,9 @@
+runtime: go
+api_version: go1
+handlers:
+    url: /.*
+    script: _go_app
+    login: required
+    security_level: secure-always
+    redirect_http_response_code: 302
+
