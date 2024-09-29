@@ -1,374 +1,420 @@
 <?php
 namespace hehe\core\hconfigure;
 
-/**
- * 配置类
- */
-class Configure
+use ArrayAccess;
+
+class Configure implements ArrayAccess
 {
-    /**
-     * 缓存文件
-     *<B>说明：</B>
-     *<pre>
-     *  略
-     *</pre>
-     * @var array
-     */
-    protected $cacheFile = '';
+    // 缓存文件路径
+    public $cacheFile = '';
 
-    /**
-     * 配置文件列表
-     * 格式1:<文件1,文件2,<文件1,key>>
-     * @var array
-     */
-    protected $files = [];
+    // 是否缓存配置,true 缓存配置
+    public $onCache = true;
 
-    /**
-     * 缓存文件有效期
-     *<B>说明：</B>
-     *<pre>
-     *  单位秒,0 表示永不用过期
-     *</pre>
-     * @var int
-     */
-    protected $expire = 0;
-
-    /**
-     * 文件后缀与解析类对应表
-     *<B>说明：</B>
-     *<pre>
-     *  略
-     *</pre>
-     * @var array
-     */
-    protected $exts = [
-        'php'=>'Php',
+    // 解析配置文件后缀
+    public $parserExts = [
+        'php'=>'php',
         'json'=>'Json',
         'ini'=>'Ini',
         'xml'=>'Xml',
         'yaml'=>'Yaml'
     ];
 
-    /**
-     * 配置的所有数据
-     * @var array
-     */
-    protected $data = [];
+
+    // 用户配置
+    protected $_params = [];
 
     /**
-     * 是否已经解析过数据
-     * @var bool
+     * 配置解析对象
+     * @var ConfigParser
      */
-    protected $parsed = false;
+    protected $_configParser = null;
 
-    public function __construct(array ...$files)
+    // 是否需要刷新缓存
+    protected $_isFresh = false;
+
+    // 是否已经加载过配置
+    protected $_isLoad = false;
+
+    protected $heheLoadFiles = [];
+    protected $_heheLoadFiles = [];
+
+    /**
+     * 构造方法
+     * @param array $configs 应用配置
+     */
+    public function __construct($configs = [])
     {
-        $this->files = $files;
+        if (!empty($configs)) {
+            if (is_string($configs) && file_exists($configs)) {
+                $this->addFile($configs);
+            } else if (is_array($configs)) {
+                foreach ($configs as $name=>$val) {
+                    $this->{$name} = $val;
+                }
+            }
+        }
+
+        $configFilePath = (new \ReflectionClass($this))->getFileName();
+        $this->addCheckFile($configFilePath,__FILE__);
     }
 
-    public static function make(array ...$files)
+    protected function getConfigParser():ConfigParser
     {
-        return new static(...$files);
+        if (!is_null($this->_configParser)) {
+            return $this->_configParser;
+        }
+
+        $this->_configParser = new ConfigParser();
+        $this->_configParser->setParsers($this->parserExts);
+        $this->setCacheFile($this->getCacheFile());
+
+        return  $this->_configParser;
     }
 
-    public function setExpire(int $expire):self
+    public function addParser(string $alias, $parser = ''):self
     {
-        $this->expire = $expire;
+        $this->getConfigParser()->addParser($alias,$parser);
+
+        return $this;
+    }
+
+    public function addCheckFile(...$files):self
+    {
+        $this->getConfigParser()->addCheckFile(...$files);
 
         return $this;
     }
 
     public function setCacheFile(string $cacheFile):self
     {
+        $this->getConfigParser()->setCacheFile($cacheFile);
+        $this->onCache = true;
         $this->cacheFile = $cacheFile;
 
         return $this;
     }
 
-    public function setParser(string $alias, $parser = ''):self
-    {
-        if ($parser === '') {
-            $this->exts[$alias] = ucfirst($alias);
-        } else {
-            $this->exts[$alias] = $parser;
-        }
 
-        return $this;
+    public function offsetExists($offset)
+    {
+        if (property_exists($this,$offset)) {
+            return true;
+        } else {
+            return false;
+        }
     }
 
-    public function setFiles(...$files):self
+    public function offsetGet($offset)
     {
-        $this->files = array_merge($this->files,$files);
+        return $this->$offset;
+    }
 
-        return $this;
+    public function offsetSet($offset, $value)
+    {
+        $this->$offset = $value;
+        return ;
+    }
+
+    public function offsetUnset($offset)
+    {
+        // TODO: Implement offsetUnset() method.
+    }
+
+    public function __set($name,$value)
+    {
+        $this->_params[$name] = $value;
+    }
+
+    public function __get($name)
+    {
+        return isset($this->_params[$name]) ? $this->_params[$name] : null;
     }
 
     /**
-     * 导入配置文件
+     * 获取指定配置项
      *<B>说明：</B>
      *<pre>
-     *  最终返回数组
+     * 多级配置项支持. 方式,如auth.user
      *</pre>
-     * @param string $file 文件路径
-     * @return array
+     * @param string $key
+     * @param string $defval 默认值
+     * @return mixed
      */
-    protected function loadFile(string $file):array
+    public function get(string $key,$defval = null)
     {
-        // 获取文件后缀
-        $info = pathinfo($file);
-        $ext = $info['extension'];
+        $keys = explode('.',$key);
+        $value = null;
 
-        if (!isset($this->exts[$ext])) {
-            throw new \Exception(sprintf('ext %s not support', $ext));
-        }
-
-        $parseClass = $this->exts[$ext];
-
-        $call = [];
-        if (is_string($parseClass)) {
-            if (strpos($parseClass,'\\') === false) {
-                $parseClass = sprintf('%s\\parser\\%sParser', __NAMESPACE__,ucfirst($parseClass));
-            }
-
-            $call = [$parseClass,'parse'];
-        } else {
-            // 闭包函数或数组
-            $call = $parseClass;
-        }
-
-        return call_user_func_array($call,[$file]);
-    }
-
-    /**
-     * 获取配置文件内容
-     *<B>说明：</B>
-     *<pre>
-     *  略
-     *</pre>
-     * @param array $files 配置文件列表
-     * @return array
-     */
-    protected function loadFiles(array $files):array
-    {
-        $data = [];
-        foreach ($files as $file) {
-            $key_name = '';
-            if (is_array($file)) {
-                list($filename,$key_name) = $file;
-            } else {
-                $filename = $file;
-            }
-
-            if (!empty($key_name)) {
-                // 支持2级数组
-                if (strpos($key_name,'.') !== false) {
-                    list($key1,$key2) =  explode('.',$key_name);
-                    if (isset($data[$key1][$key2])) {
-                        $data[$key1][$key2] = array_merge($data[$key1][$key2],$this->loadFile($filename));
-                    } else {
-                        $data[$key1][$key2] = $this->loadFile($filename);;
-                    }
+        foreach ($keys as $key) {
+            if (!is_null($value)) {
+                if (isset($value[$key])) {
+                    $value = $value[$key];
                 } else {
-                    if (isset($data[$key_name])) {
-                        $data[$key_name] = array_merge($data[$key_name],$this->loadFile($filename));
-                    } else {
-                        $data[$key_name] = $this->loadFile($filename);
-                    }
+                    return $defval;
                 }
+            } else if (isset($this->_params[$key])) {
+                $value = $this->_params[$key];
             } else {
-                $data = array_merge($this->loadFile($filename),$data);
+                return $defval;
             }
         }
 
-        return $data;
+        return $value;
     }
 
-    /**
-     * 文件是否更新过
-     *<B>说明：</B>
-     *<pre>
-     *  苦厄
-     *</pre>
-     * @param string $file 文件路径
-     * @return boolean true 表示文件更新过,false 未更新
-     */
-    protected function hasFileUpdated(string $file):bool
+    public function has(string $name)
     {
-        $change_status = true;
-        if (is_array($file)) {
-            list($filename,$key) = $file;
+        if (strpos($name,'.') === false) {
+            return isset($this->_params[$name]);
         } else {
-            $filename = $file;
+            return is_null($this->get($name)) ? false : true;
         }
-
-        if (!is_file($this->cacheFile)) {
-            return $change_status;
-        }
-
-        // 如果缓存文件不存在
-        if (is_file($filename)) {
-            // 文件有更新
-            if (filemtime($filename) < filemtime($this->cacheFile)) {
-                $change_status = false;
-                return $change_status;
-            }
-
-            // 判断缓存文件是否过期
-            if ($this->expire > 0) {
-                // 判断文件是否更新
-                $nowtime = time();
-                if (($nowtime + $this->expire) < filemtime($this->cacheFile)) {
-                    $change_status = false;
-                }
-            }
-        }
-
-        return $change_status;
     }
 
     /**
-     * 检测配置文件是否更新过
+     * 加载配置
      *<B>说明：</B>
      *<pre>
-     *  略
+     * 从配置文件把数据加载到属性中
      *</pre>
-     * @return boolean true 表示更新过,false 未更新过
+     * @return self
      */
-    public function checkFileUpdated():bool
+    public function load():self
     {
-        foreach ($this->files as $file) {
-            $updateStatus = $this->hasFileUpdated($file);
-            if ($updateStatus === true) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * 从配置文件中获取数据
-     *<B>说明：</B>
-     *<pre>
-     *  略
-     *</pre>
-     * @param bool $forceRawConfig 是否强制从原始配置文件中获取数据,反之从缓存文件中获取数据
-     * @return array
-     */
-    public function getConfigFromFile(bool $forceRawConfig = false):array
-    {
-        if ($forceRawConfig) {
-            $data = $this->getRawConfigFromFile();
+        $configParser = $this->getConfigParser();
+        if ($configParser->isFresh()) {
+            $this->loadFileConfig();
         } else {
-            if (!empty($this->cacheFile)) {
-                $data = $this->getCacheConfigFromFile();
-            } else {
-                $data = $this->getRawConfigFromFile();
-            }
+            $this->loadCacheConfig();
         }
 
-        return $data;
-    }
-
-    /**
-     * 从缓存文件中获取配置信息
-     * 如果配置文件有更新，则重新生成缓存文件
-     * @return array
-     */
-    public function getCacheConfigFromFile():array
-    {
-        $fileUpdatedStatus = $this->checkFileUpdated();
-        if ($fileUpdatedStatus === true) {
-            $this->writeConfig($this->loadFiles($this->files));
-        }
-
-        return require($this->cacheFile);
-    }
-
-    public function getRawConfigFromFile():array
-    {
-        return $this->loadFiles($this->files);
-    }
-
-    public function parseConfig():self
-    {
-        if ($this->parsed) {
-            return $this;
-        }
-
-        $this->data = $this->getConfigFromFile();
-        $this->parsed = true;
+        $this->_isLoad = true;
 
         return $this;
     }
 
     /**
-     * 获取配置信息
-     *<B>说明：</B>
-     *<pre>
-     *  略
-     *</pre>
-     * @return array
+     * 验证缓存数据是否有效
+     * @param array $params
+     * @return bool
      */
-    public function getConfig():array
+    protected function validCacheParams(array $params):bool
     {
-        $this->parseConfig();
-
-        return $this->data;
-    }
-
-    public function cleanConfig():void
-    {
-        $this->data = [];
-        $this->parsed = false;
-        if (!empty($this->cacheFile) && file_exists($this->cacheFile)) {
-            unlink($this->cacheFile);
-        }
-    }
-
-    /**
-     * 配置写入缓存文件
-     *<B>说明：</B>
-     *<pre>
-     *  略
-     *</pre>
-     * @param array $config 配置数据
-     * @return void
-     */
-    public function writeConfig(array $config):void
-    {
-        $cache_file_dir = dirname($this->cacheFile);
-        if (!is_dir($cache_file_dir)) {
-            mkdir($cache_file_dir,0777,true);
-        }
-
-        file_put_contents($this->cacheFile,'<?php return ' . var_export($config,true) . ';');
-    }
-
-    public function get(string $name = null, $default = null)
-    {
-        $this->parseConfig();
-        $nameArr = explode('.', $name);
-        $config = $this->data;
-        foreach ($nameArr as $key) {
-            if (isset($config[$key])) {
-                $config = $config[$key];
-            } else {
-                return $default;
-            }
-        }
-
-        return $config;
-    }
-
-    public function has(string $name):bool
-    {
-        $this->parseConfig();
-
-        if (strpos($name,'.') === false && !isset($this->data[$name])) {
+        // 验证数量是否一致
+        if (count($params['heheLoadFiles']) !== count($this->_heheLoadFiles)) {
             return false;
         }
 
-        return is_null($this->get($name)) ? false : true;
+        // 验证新增的文件是否与缓存文件一致
+        foreach ($this->_heheLoadFiles as $file=>$status) {
+            if (!isset($params['heheLoadFiles'][$file])) {
+                return false;
+            }
+        }
+
+        return true;
     }
+
+    protected function loadFileConfig():void
+    {
+        $configParser = $this->getConfigParser();
+        $this->_params = $configParser->getConfigFromFile();
+        $this->heheLoadFiles = $this->_heheLoadFiles;
+        $this->configToAttribute();
+        $this->parseConfig();
+        $this->writeConfigCache();
+    }
+
+    protected function loadCacheConfig():void
+    {
+        $configParser = $this->getConfigParser();
+        $this->_params = $configParser->getConfigFromCache();
+        // 直接读取缓存文件
+        if ($this->validCacheParams($this->_params)) {
+            $this->heheLoadFiles = $this->_heheLoadFiles;
+            $this->configToAttribute();
+        } else {
+            $this->loadFileConfig();
+        }
+    }
+
+    /**
+     * 获取缓存配置文件
+     *<B>说明：</B>
+     *<pre>
+     * 略
+     *</pre>
+     * @return string
+     */
+    protected function getCacheFile():string
+    {
+        return $this->cacheFile;
+    }
+
+    /**
+     * 配置数据转为配置对象属性
+     */
+    protected function configToAttribute()
+    {
+        $ref = new \ReflectionClass($this);
+        $attributes = [];
+        foreach ($ref->getProperties() as $attribute) {
+            $name = $attribute->name;
+            if (substr($name,0,1) === '_') {
+                continue;
+            }
+
+            $attributes[$name] = $name;
+        }
+
+        foreach ($this->_params as $name=>$val) {
+            if (isset($attributes[$name])) {
+                $this->{$name} = $val;
+            }
+        }
+    }
+
+    /**
+     * 获取所有配置信息
+     *<B>说明：</B>
+     *<pre>
+     * 略
+     *</pre>
+     * @return array
+     */
+    public function toArray():array
+    {
+        $attrs = [];
+        $ref = new \ReflectionClass($this);
+        foreach ($ref->getProperties() as $attribute) {
+            if (substr($attribute->name,0,1) === '_') {
+                continue;
+            }
+
+            $name = $attribute->name;
+            $attrs[$name] = $this->$name;
+        }
+
+        return array_merge($this->_params,$attrs);
+    }
+
+    public function getConfig():array
+    {
+        return $this->toArray();
+    }
+
+    /**
+     * 写入配置数据至缓存文件
+     * @return bool
+     */
+    protected function writeConfigCache():void
+    {
+        if ($this->onCache) {
+            $this->getConfigParser()->writeConfig($this->toArray());
+        }
+    }
+
+    public function addFile(string $file,string $key = ''):self
+    {
+        $filename = pathinfo($file,PATHINFO_FILENAME);
+        if ($key === '' && strpos($filename,'.') !== false) {
+            $filenames = explode('.',$filename);
+            if (count($filenames) >=3) {
+                $filenames = array_slice($filenames, -2);
+                $key = implode('.',$filenames);
+            } else {
+                $key = $filenames[count($filenames) - 1];
+            }
+        }
+
+        $this->getConfigParser()->addFile([$file,$key]);
+
+        if (!isset($this->heheLoadFiles[$file])) {
+            $this->_isFresh = true;
+        }
+
+        $this->_heheLoadFiles[$file] = true;
+
+        return $this;
+    }
+
+    /**
+     * 加载配置文件
+     *<B>说明：</B>
+     *<pre>
+     * 略
+     *</pre>
+     * @param array $files
+     */
+    public function addFiles(...$files):self
+    {
+        $configFiles = [];
+        foreach ($files as $file) {
+            $key = '';
+            $filepath = '';
+            if (is_array($file)) {
+                list($filepath,$key) = $file;
+            } else {
+                $filepath = $file;
+            }
+
+            if (!empty($key)) {
+                $this->addFile($filepath,$key);
+            } else {
+                $this->addFile($filepath);
+            }
+        }
+
+        return $this;
+    }
+
+    /**
+     * 加载目录下的配置文件
+     * @param string $dir 目录地址
+     * @param string $match 匹配规则
+     * @return self
+     */
+    public function addDir(string $dir,string $match = ''):self
+    {
+        $files = new \RecursiveIteratorIterator(
+            new \RecursiveDirectoryIterator($dir, \RecursiveDirectoryIterator::SKIP_DOTS),
+            \RecursiveIteratorIterator::CHILD_FIRST
+        );
+
+        if ($match === '') {
+            $match = '/^.*\.(' . implode('|', array_keys($this->parserExts)) . ')$/';
+        }
+
+        foreach ($files as $file) {
+            if ($file->isDir()) {
+                continue;
+            }
+
+            if (preg_match($match, $file->getFilename(), $matches)) {
+                $this->addFile($file->getRealPath());
+            }
+        }
+
+        return $this;
+    }
+
+    /**
+     * 解析配置文件,并返回配置数据
+     * @param string $file
+     * @return array
+     */
+    public function parseFile(string $file):array
+    {
+        return $this->getConfigParser()->parseFile($file);
+    }
+
+
+    // 配置启动入口
+    public function parseConfig()
+    {
+
+    }
+
+
 }

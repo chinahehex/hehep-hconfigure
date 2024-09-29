@@ -23,6 +23,8 @@ composer require hehex/hehep-hconfigure
 
 ```php
 $eventConf = [
+    'onCache'=>true,// 是否开启缓存
+    'cacheFile'=>'',// 缓存文件路径
     // 默认支持的配置解析器
     'exts'=>[
         'php'=>'Php',
@@ -52,7 +54,7 @@ use hehe\core\hconfigure\Configure;
 $hconfig = new Configure();
 
 // 设置配置文件
-$hconfig->setFiles('user.php','user.json');
+$hconfig->addFiles('user.php','user.json');
 
 // 获取配置项
 $username = $hconfig->get('name');
@@ -60,6 +62,30 @@ $hasNameStatus = $hconfig->has('name');
 
 // 获取所有配置
 $allConfig = $hconfig->getConfig();
+
+```
+
+- 获取配置项
+```php
+// 创建配置对象
+$hconfig = new Configure();
+// 设置配置文件
+$hconfig->addFiles('user.php','user.json');
+
+// 直接获取对象属性
+$hconfig->appName;
+
+// 获取配置项name
+$username = $hconfig->get('name');
+
+// 获取配置项name,不存在返回默认值"admin"
+$username = $hconfig->get('name','admin');
+
+// 获取二级配置项,配置项为user.name,
+$username = $hconfig->get('user.name');
+
+// 判断配置项name是否存在
+$hasNameStatus = $hconfig->has('name');
 
 ```
 
@@ -72,10 +98,10 @@ use hehe\core\hconfigure\Configure;
 $hconfig = new Configure();
 
 // 设置配置文件
-$hconfig->setFiles('user.php','user.json');
+$hconfig->addFiles('user.php','user.json');
 ```
 
-- 设置配置项文件
+- 添加配置项文件
 ```php
 use hehe\core\hconfigure\Configure;
 
@@ -83,10 +109,12 @@ use hehe\core\hconfigure\Configure;
 $hconfig = new Configure();
 
 // 给配置项"user",指定user.php 配置文件
-$hconfig->setFiles(['user.php','user'],'user.json');
+$hconfig->addFile('user.php','user');
+
+$hconfig->addFiles(['user.php','user'],'user.json');
 
 // 给配置项"user.admin",指定admin.php 配置文件
-$hconfig->setFiles(['admin.php','user.admin'],'user.json');
+$hconfig->addFiles(['admin.php','user.admin'],'user.json');
 ```
 
 ## 配置解析器
@@ -107,21 +135,21 @@ use hehe\core\hconfigure\Configure;
 
 // 创建配置对象
 $hconfig = new Configure();
-$hconfig->setParser('ini',IniParser::class);
-$hconfig->setParser('ini',[IniParser::class,'parse']);
+$hconfig->addParser('ini',IniParser::class);
+$hconfig->addParser('ini',[IniParser::class,'parse']);
 
 // 设置闭包解析器
-$hconfig->setParser('ini',function($file){
+$hconfig->addParser('ini',function($file){
     return parse_ini_string(file_get_contents($file), true);
 });
 
-$allConfig = $hconfig->setFiles('user.ini')->getConfig();
+$allConfig = $hconfig->addFiles('user.ini')->load()->getConfig();
 
 ```
 
 ## 缓存配置
 
-- 示例代码
+- 设置缓存文件路径
 ```php
 use hehe\core\hconfigure\Configure;
 
@@ -131,33 +159,24 @@ $hconfig = new Configure();
 // 设置缓存文件路径
 $hconfig->setCacheFile('cache/config.php');
 
-// 设置30 分钟缓存
-$hconfig->setExpire(60 * 30);
+$allConfig = $hconfig->addFiles('user.ini')->load()->getConfig();
 
-$allConfig = $hconfig->setFiles('user.ini')->getConfig();
-
-// 直接读取缓存文件
-$cacheConfig = $hconfig->getCacheConfigFromFile();
 ```
 
-## 清除配置
-- 示例代码
+- 添加缓存检测文件
 ```php
 use hehe\core\hconfigure\Configure;
-
 // 创建配置对象
 $hconfig = new Configure();
 
 // 设置缓存文件路径
 $hconfig->setCacheFile('cache/config.php');
 
-$allConfig = $hconfig->setFiles('user.ini')->getConfig();
+// 添加缓存文件,用于检测缓存是否有效
+$hconfig->addCheckFile('adminuser.php');
 
-// 清除配置数据,缓存,解析状态
-$hconfig->cleanConfig();
+$allConfig = $hconfig->addFiles('user.ini')->load()->getConfig();
 
-// 重新加载配置
-$allConfig = $hconfig->getConfig();
 ```
 
 

@@ -2,7 +2,7 @@
 
 return [
     'name'=>'角色',
-    'admin'=>[
+    'adminxx'=>[
         'id'=>1,
         'name'=>'超级管理员'
     ],
