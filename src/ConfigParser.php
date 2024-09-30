@@ -21,7 +21,7 @@ class ConfigParser
      * 用于检测文件是否更新
      * @var array
      */
-    protected $cacheFiles = [];
+    protected $checkFiles = [];
 
     /**
      * 配置文件列表
@@ -29,7 +29,7 @@ class ConfigParser
      * @var array
      */
     protected $files = [];
-    
+
     /**
      * 文件后缀与解析类对应表
      *<B>说明：</B>
@@ -50,7 +50,7 @@ class ConfigParser
     public function __construct(array ...$files)
     {
         $this->files = $files;
-        $this->cacheFiles = $files;
+        $this->checkFiles = $files;
     }
 
     public function setCacheFile(string $cacheFile):self
@@ -97,10 +97,10 @@ class ConfigParser
         return $this;
     }
 
-    public function addCheckFile(...$cacheFiles):self
+    public function addCheckFile(...$checkFiles):self
     {
-        foreach ($cacheFiles as $file) {
-            $this->cacheFiles[$file] = $file;
+        foreach ($checkFiles as $file) {
+            $this->checkFiles[$file] = $file;
         }
 
         return $this;
@@ -216,7 +216,7 @@ class ConfigParser
             return true;
         }
 
-        foreach ($this->cacheFiles as $file) {
+        foreach ($this->checkFiles as $file) {
             if (is_array($file)) {
                 list($filename,$key) = $file;
             } else {

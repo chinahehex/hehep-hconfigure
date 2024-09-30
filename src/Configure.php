@@ -113,6 +113,8 @@ class Configure implements ArrayAccess
     public function offsetSet($offset, $value)
     {
         $this->$offset = $value;
+        $this->_params[$offset] = $value;
+
         return ;
     }
 
@@ -128,7 +130,7 @@ class Configure implements ArrayAccess
 
     public function __get($name)
     {
-        return isset($this->_params[$name]) ? $this->_params[$name] : null;
+        return $this->get($name);
     }
 
     /**
@@ -163,7 +165,7 @@ class Configure implements ArrayAccess
         return $value;
     }
 
-    public function has(string $name)
+    public function has(string $name):bool
     {
         if (strpos($name,'.') === false) {
             return isset($this->_params[$name]);
@@ -219,7 +221,7 @@ class Configure implements ArrayAccess
     protected function loadFileConfig():void
     {
         $configParser = $this->getConfigParser();
-        $this->_params = $configParser->getConfigFromFile();
+        $this->_params = array_merge($this->getAllAttributes(),$configParser->getConfigFromFile());
         $this->heheLoadFiles = $this->_heheLoadFiles;
         $this->configToAttribute();
         $this->parseConfig();
@@ -229,10 +231,11 @@ class Configure implements ArrayAccess
     protected function loadCacheConfig():void
     {
         $configParser = $this->getConfigParser();
-        $this->_params = $configParser->getConfigFromCache();
+        $params = $configParser->getConfigFromCache();
         // 直接读取缓存文件
-        if ($this->validCacheParams($this->_params)) {
+        if ($this->validCacheParams($params)) {
             $this->heheLoadFiles = $this->_heheLoadFiles;
+            $this->_params = $params;
             $this->configToAttribute();
         } else {
             $this->loadFileConfig();
@@ -247,7 +250,7 @@ class Configure implements ArrayAccess
      *</pre>
      * @return string
      */
-    protected function getCacheFile():string
+    public function getCacheFile():string
     {
         return $this->cacheFile;
     }
@@ -255,24 +258,33 @@ class Configure implements ArrayAccess
     /**
      * 配置数据转为配置对象属性
      */
-    protected function configToAttribute()
+    protected function configToAttribute():void
     {
-        $ref = new \ReflectionClass($this);
-        $attributes = [];
-        foreach ($ref->getProperties() as $attribute) {
-            $name = $attribute->name;
-            if (substr($name,0,1) === '_') {
+        foreach ((new \ReflectionClass($this))->getProperties() as $attribute) {
+            if (substr($attribute->name,0,1) === '_') {
                 continue;
             }
 
-            $attributes[$name] = $name;
-        }
-
-        foreach ($this->_params as $name=>$val) {
-            if (isset($attributes[$name])) {
-                $this->{$name} = $val;
+            $name = $attribute->name;
+            if (isset($this->_params[$name])) {
+                $this->{$name} = $this->_params[$name];
             }
         }
+    }
+
+    protected function getAllAttributes():array
+    {
+        $attrs = [];
+        foreach ((new \ReflectionClass($this))->getProperties() as $attribute) {
+            if (substr($attribute->name,0,1) === '_') {
+                continue;
+            }
+
+            $name = $attribute->name;
+            $attrs[$attribute->name] = $this->{$name};
+        }
+
+        return $attrs;
     }
 
     /**
@@ -285,18 +297,7 @@ class Configure implements ArrayAccess
      */
     public function toArray():array
     {
-        $attrs = [];
-        $ref = new \ReflectionClass($this);
-        foreach ($ref->getProperties() as $attribute) {
-            if (substr($attribute->name,0,1) === '_') {
-                continue;
-            }
-
-            $name = $attribute->name;
-            $attrs[$name] = $this->$name;
-        }
-
-        return array_merge($this->_params,$attrs);
+        return array_merge($this->_params,$this->getAllAttributes());
     }
 
     public function getConfig():array
@@ -306,7 +307,7 @@ class Configure implements ArrayAccess
 
     /**
      * 写入配置数据至缓存文件
-     * @return bool
+     * @return void
      */
     protected function writeConfigCache():void
     {
@@ -349,7 +350,6 @@ class Configure implements ArrayAccess
      */
     public function addFiles(...$files):self
     {
-        $configFiles = [];
         foreach ($files as $file) {
             $key = '';
             $filepath = '';
@@ -411,7 +411,7 @@ class Configure implements ArrayAccess
 
 
     // 配置启动入口
-    public function parseConfig()
+    protected function parseConfig()
     {
 
     }
