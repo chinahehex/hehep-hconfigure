@@ -1,7 +1,8 @@
 # hehep-hconfigure
 
 ## 介绍
-- hehep-hconfigure 是一个PHP 配置基础组件，支持缓存功能
+> hehep-hconfigure 是一个PHP配置基础组件，支持缓存功能  
+> 默认支持php,json,ini,xml,yaml格式  
 
 ## 安装
 - **gitee下载**:
@@ -22,17 +23,13 @@ composer require hehex/hehep-hconfigure
 ## 组件配置
 
 ```php
-$eventConf = [
+$config = [
     'onCache'=>true,// 是否开启缓存
-    'cacheFile'=>'',// 缓存文件路径
+    'cacheFile'=>'',// 缓存文件路径,
+    'configFiles'=>[],// 默认配置文件集合
+    'alias'=>[],// 别名集合
     // 默认支持的配置解析器
-    'exts'=>[
-        'php'=>'Php',
-        'json'=>'Json',
-        'ini'=>'Ini',
-        'xml'=>'Xml',
-        'yaml'=>'Yaml'
-    ],
+    'parserExts'=>['php', 'json', 'ini', 'xml', 'yaml'],
 ];
 
 
@@ -40,11 +37,9 @@ $eventConf = [
 
 ## 配置对象
 - 说明
-```
-类名:hehe\core\hconfigure\Configure
-作用:配置解析器,设置缓存功能,获取配置项
-解释器:默认支持php,json,ini,xml,yaml格式
-```
+> 类名:hehe\core\hconfigure\Configure  
+> 作用:配置解析器,设置缓存功能,获取配置项  
+> 解释器:默认支持php,json,ini,xml,yaml格式
 
 - 示例代码
 ```php
@@ -65,8 +60,9 @@ $allConfig = $hconfig->getConfig();
 
 ```
 
-- 获取配置项
+## 获取配置项
 ```php
+use hehe\core\hconfigure\Configure;
 // 创建配置对象
 $hconfig = new Configure();
 // 设置配置文件
@@ -90,16 +86,9 @@ $hasNameStatus = $hconfig->has('name');
 ```
 
 ## 配置文件
-- 设置配置文件
-```php
-use hehe\core\hconfigure\Configure;
-
-// 创建配置对象
-$hconfig = new Configure();
-
-// 设置配置文件
-$hconfig->addFiles('user.php','user.json');
-```
+> 配置文件名格式: xxxx.配置项键名1.配置项键名2  
+> 比如:config.components.php,配置项键名为components  
+> 比如:config.components.hroute.php,配置项键名为:components['hroute']
 
 - 添加配置项文件
 ```php
@@ -129,7 +118,7 @@ class IniParser
 }
 ```
 
-- 使用解析器
+- 注册解析器
 ```php
 use hehe\core\hconfigure\Configure;
 
@@ -144,6 +133,34 @@ $hconfig->addParser('ini',function($file){
 });
 
 $allConfig = $hconfig->addFiles('user.ini')->load()->getConfig();
+
+```
+
+## 别名集合
+> 作用:主要用于替换配置项  
+> 别名引用格式@别名@  
+```php
+use hehe\core\hconfigure\Configure;
+
+// 创建配置对象
+$hconfig = new Configure([
+    'alias'=>[
+        'appPath'=>'/www/apps/admin',
+        'appConfig'=>'@appPath@/config'
+    ],
+    
+    'file'=>'@appPath@/config.php'
+]);
+
+// 设置appPath别名
+$hconfig->setAlias('appPath','/www/apps/admin');
+
+//获取别名
+$hconfig->getAlias('@appPath');
+
+$file = $hconfig->get('file');
+// $file = /www/apps/admin/config.php
+
 
 ```
 
@@ -179,7 +196,44 @@ $allConfig = $hconfig->addFiles('user.ini')->load()->getConfig();
 
 ```
 
+## 扩展配置
+> 基类:继承hehe\core\hconfigure\Configure
 
+```php
+<?php
+namespace hehe\core\base;
+
+use hehe\core\hconfigure\Configure;
+
+class Config extends Configure
+{
+    // 项目名
+    public $appName = '';
+
+    // 定义其他属性
+    
+    // 重写以下方法
+    
+    /**
+     * 自动导入配置文件
+     */
+    protected function autoloadFiles():void
+    {
+        parent::autoloadFiles();
+
+        // 导入配置目录下的所有配置文件
+        
+    }
+    
+    protected function parseConfig():void
+    {
+        
+    }
+    
+}
+
+
+```
 
 
 

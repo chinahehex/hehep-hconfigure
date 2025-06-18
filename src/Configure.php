@@ -12,16 +12,28 @@ class Configure implements ArrayAccess
     public $onCache = true;
 
     // 解析配置文件后缀
-    public $parserExts = [
-        'php'=>'php',
-        'json'=>'Json',
-        'ini'=>'Ini',
-        'xml'=>'Xml',
-        'yaml'=>'Yaml'
-    ];
+    public $parserExts = ['php', 'json', 'ini', 'xml', 'yaml'];
+
+    // 默认读取配置文件
+    public $configFiles = [];
+
+    /**
+     * 命名空间别名
+     *<B>说明：</B>
+     *<pre>
+     *  [
+     *      'extend'=>'@root/extend',
+     *      'common'=>'@apps/common',
+     *      'Doctrine'=>'@vendor/Doctrine',
+     *      'MongoDB'=>'@vendor/MongoDB',
+     * ]
+     *</pre>
+     * @var array
+     */
+    public $alias = [];
 
 
-    // 用户配置
+    // 所有配置
     protected $_params = [];
 
     /**
@@ -30,14 +42,13 @@ class Configure implements ArrayAccess
      */
     protected $_configParser = null;
 
-    // 是否需要刷新缓存
-    protected $_isFresh = false;
-
     // 是否已经加载过配置
-    protected $_isLoad = false;
+    protected $_loaded = false;
 
-    protected $heheLoadFiles = [];
-    protected $_heheLoadFiles = [];
+    protected $_files = [];
+    protected $_allfile = [];
+    protected $_checkFiles = [];
+
 
     /**
      * 构造方法
@@ -45,18 +56,21 @@ class Configure implements ArrayAccess
      */
     public function __construct($configs = [])
     {
+        $checkFiles = [__FILE__,(new \ReflectionClass($this))->getFileName()];
         if (!empty($configs)) {
             if (is_string($configs) && file_exists($configs)) {
-                $this->addFile($configs);
-            } else if (is_array($configs)) {
+                $checkFiles[] = $configs;
+                $configs = require $configs;
+            }
+
+            if (is_array($configs)) {
                 foreach ($configs as $name=>$val) {
                     $this->{$name} = $val;
                 }
             }
         }
 
-        $configFilePath = (new \ReflectionClass($this))->getFileName();
-        $this->addCheckFile($configFilePath,__FILE__);
+        $this->addCheckFile(...$checkFiles);
     }
 
     protected function getConfigParser():ConfigParser
@@ -66,10 +80,10 @@ class Configure implements ArrayAccess
         }
 
         $this->_configParser = new ConfigParser();
-        $this->_configParser->setParsers($this->parserExts);
-        $this->setCacheFile($this->getCacheFile());
+        $this->_configParser->setParsers($this->parserExts)
+        ->setCacheFile($this->getCacheFile());
 
-        return  $this->_configParser;
+        return $this->_configParser;
     }
 
     public function addParser(string $alias, $parser = ''):self
@@ -81,22 +95,21 @@ class Configure implements ArrayAccess
 
     public function addCheckFile(...$files):self
     {
-        $this->getConfigParser()->addCheckFile(...$files);
+        $this->_checkFiles = array_merge($this->_checkFiles,$files);
 
         return $this;
     }
 
     public function setCacheFile(string $cacheFile):self
     {
-        $this->getConfigParser()->setCacheFile($cacheFile);
         $this->onCache = true;
         $this->cacheFile = $cacheFile;
+        $this->getConfigParser()->setCacheFile($cacheFile);
 
         return $this;
     }
 
-
-    public function offsetExists($offset)
+    public function offsetExists($offset):bool
     {
         if (property_exists($this,$offset)) {
             return true;
@@ -105,22 +118,23 @@ class Configure implements ArrayAccess
         }
     }
 
+    #[\ReturnTypeWillChange]
     public function offsetGet($offset)
     {
-        return $this->$offset;
+        return $this->{$offset};
     }
 
-    public function offsetSet($offset, $value)
+    public function offsetSet($offset, $value):void
     {
-        $this->$offset = $value;
+        $this->{$offset} = $value;
         $this->_params[$offset] = $value;
 
         return ;
     }
 
-    public function offsetUnset($offset)
+    public function offsetUnset($offset):void
     {
-        // TODO: Implement offsetUnset() method.
+        throw new \Exception('not support unset');
     }
 
     public function __set($name,$value)
@@ -184,61 +198,61 @@ class Configure implements ArrayAccess
      */
     public function load():self
     {
-        $configParser = $this->getConfigParser();
-        if ($configParser->isFresh()) {
-            $this->loadFileConfig();
-        } else {
-            $this->loadCacheConfig();
+        if ($this->_loaded === true) {
+            return $this;
         }
 
-        $this->_isLoad = true;
+        // 自动导入配置文件
+        $this->autoloadFiles();
+
+        $configParser = $this->getConfigParser();
+        $configParser->addFiles($this->_files)->addCheckFile(...$this->_checkFiles);
+        if ($configParser->isFresh()) {
+            $this->loadConfigFromFile();
+        } else {
+            $this->loadConfigFromCache();
+        }
+
+        $this->_loaded = true;
 
         return $this;
     }
 
     /**
-     * 验证缓存数据是否有效
-     * @param array $params
-     * @return bool
+     * 自动导入配置文件
      */
-    protected function validCacheParams(array $params):bool
+    protected function autoloadFiles():void
     {
-        // 验证数量是否一致
-        if (count($params['heheLoadFiles']) !== count($this->_heheLoadFiles)) {
-            return false;
+        if (!empty($this->configFiles)) {
+            $this->addFiles(...$this->configFiles);
         }
-
-        // 验证新增的文件是否与缓存文件一致
-        foreach ($this->_heheLoadFiles as $file=>$status) {
-            if (!isset($params['heheLoadFiles'][$file])) {
-                return false;
-            }
-        }
-
-        return true;
     }
 
-    protected function loadFileConfig():void
+    protected function loadConfigFromFile():void
     {
         $configParser = $this->getConfigParser();
         $this->_params = array_merge($this->getAllAttributes(),$configParser->getConfigFromFile());
-        $this->heheLoadFiles = $this->_heheLoadFiles;
         $this->configToAttribute();
         $this->parseConfig();
-        $this->writeConfigCache();
+        $this->_params = $this->doFormatConfig(array_merge($this->_params,$this->getAllAttributes()));
+        $this->configToAttribute();
+
+        // 写入缓存
+        if ($this->onCache) {
+            $configParser->writeConfig([$this->_allfile,$this->toArray()]);
+        }
     }
 
-    protected function loadCacheConfig():void
+    protected function loadConfigFromCache():void
     {
         $configParser = $this->getConfigParser();
-        $params = $configParser->getConfigFromCache();
+        list($this->_params,$files) = $configParser->getConfigFromCache();
         // 直接读取缓存文件
-        if ($this->validCacheParams($params)) {
-            $this->heheLoadFiles = $this->_heheLoadFiles;
-            $this->_params = $params;
+        if ($files == $this->_allfile) {
             $this->configToAttribute();
         } else {
-            $this->loadFileConfig();
+            $this->_params = [];
+            $this->loadConfigFromFile();
         }
     }
 
@@ -297,7 +311,7 @@ class Configure implements ArrayAccess
      */
     public function toArray():array
     {
-        return array_merge($this->_params,$this->getAllAttributes());
+        return $this->_params;
     }
 
     public function getConfig():array
@@ -305,37 +319,11 @@ class Configure implements ArrayAccess
         return $this->toArray();
     }
 
-    /**
-     * 写入配置数据至缓存文件
-     * @return void
-     */
-    protected function writeConfigCache():void
-    {
-        if ($this->onCache) {
-            $this->getConfigParser()->writeConfig($this->toArray());
-        }
-    }
-
     public function addFile(string $file,string $key = ''):self
     {
-        $filename = pathinfo($file,PATHINFO_FILENAME);
-        if ($key === '' && strpos($filename,'.') !== false) {
-            $filenames = explode('.',$filename);
-            if (count($filenames) >=3) {
-                $filenames = array_slice($filenames, -2);
-                $key = implode('.',$filenames);
-            } else {
-                $key = $filenames[count($filenames) - 1];
-            }
-        }
-
-        $this->getConfigParser()->addFile([$file,$key]);
-
-        if (!isset($this->heheLoadFiles[$file])) {
-            $this->_isFresh = true;
-        }
-
-        $this->_heheLoadFiles[$file] = true;
+        $this->_loaded = false;
+        $this->_files[$file] = $key;
+        $this->_allfile[] = $file;
 
         return $this;
     }
@@ -351,18 +339,11 @@ class Configure implements ArrayAccess
     public function addFiles(...$files):self
     {
         foreach ($files as $file) {
-            $key = '';
-            $filepath = '';
             if (is_array($file)) {
                 list($filepath,$key) = $file;
-            } else {
-                $filepath = $file;
-            }
-
-            if (!empty($key)) {
                 $this->addFile($filepath,$key);
             } else {
-                $this->addFile($filepath);
+                $this->addFile($file);
             }
         }
 
@@ -382,8 +363,9 @@ class Configure implements ArrayAccess
             \RecursiveIteratorIterator::CHILD_FIRST
         );
 
+        $parserExts = $this->getConfigParser()->getExts();
         if ($match === '') {
-            $match = '/^.*\.(' . implode('|', array_keys($this->parserExts)) . ')$/';
+            $match = '/^.*\.(' . implode('|', $parserExts) . ')$/';
         }
 
         foreach ($files as $file) {
@@ -409,6 +391,68 @@ class Configure implements ArrayAccess
         return $this->getConfigParser()->parseFile($file);
     }
 
+    public function hasAlias(string $alias):bool
+    {
+        return isset($this->alias[$alias]);
+    }
+
+    public function getAlias($alias)
+    {
+        if (!is_string($alias)) {
+            return $alias;
+        }
+
+        if (strncmp($alias, '@', 1)) {
+            // not an alias
+            return $alias;
+        }
+
+        $alias = substr($alias,1);
+        $pos = strpos($alias, '/');
+
+        if ($pos === false) {
+            $alias_name = $alias;
+            return $this->alias[$alias_name];
+        } else {
+            $alias_name = substr($alias, 0, $pos);
+            $path = substr($alias, $pos + 1);
+            return $this->alias[$alias_name] . $path;
+        }
+    }
+
+    public function setAlias(string $alias,$path):void
+    {
+        if (is_string($path)) {
+            $this->alias[$alias] = $this->getAlias($path);
+        } else {
+            $this->alias[$alias] = $path;
+        }
+    }
+
+    protected function doFormatConfig($config)
+    {
+        foreach ($config as $name=>$value) {
+            if (is_array($value)) {
+                $config[$name] = $this->doFormatConfig($value);
+            } else {
+                if (is_object($value)) {
+                    continue;
+                }
+
+                if (preg_match('/@(\w+)@(.*)/', $value, $matches)) {
+                    if (!isset($matches[2]) ||  $matches[2] === '') {
+                        $config[$name] = $this->getAlias("@".$matches[1]);
+                    } else {
+                        $config[$name] = $this->getAlias("@".$matches[1]).$matches[2] ;
+                    }
+                } else {
+                    $config[$name] = $value;
+                }
+            }
+        }
+
+        return $config;
+    }
 
     // 配置启动入口
     protected function parseConfig()

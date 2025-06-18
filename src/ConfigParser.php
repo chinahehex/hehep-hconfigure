@@ -39,18 +39,16 @@ class ConfigParser
      * @var array
      */
     protected $exts = [
-        'php'=>'Php',
-        'json'=>'Json',
-        'ini'=>'Ini',
-        'xml'=>'Xml',
-        'yaml'=>'Yaml'
+//        'php'=>'Php',
+//        'json'=>'Json',
+//        'ini'=>'Ini',
+//        'xml'=>'Xml',
+//        'yaml'=>'Yaml'
     ];
-
 
     public function __construct(array ...$files)
     {
-        $this->files = $files;
-        $this->checkFiles = $files;
+        $this->addFiles($files);
     }
 
     public function setCacheFile(string $cacheFile):self
@@ -73,26 +71,50 @@ class ConfigParser
 
     public function setParsers(array $parsers):self
     {
-        $this->exts = array_merge($this->exts,$parsers);
+        foreach ($parsers as $alias=>$parser) {
+            if (is_numeric($alias)) {
+                $this->addParser($parser);
+            } else {
+                $this->addParser($alias,$parser);
+            }
+        }
 
         return $this;
     }
 
-    public function addFile(...$files):self
+    public function getExts()
     {
-        $cackeFiles = [];
-        foreach ($files as $file) {
-            if (is_array($file)) {
-                list($filepath,$key) = $file;
-            } else {
-                $filepath = $file;
-            }
+        return array_keys($this->exts);
+    }
 
-            $this->files[$filepath] = $file;
-            $cackeFiles[] = $filepath;
+    public function addFile(string $file = '',string $key = ''):void
+    {
+        $filename = pathinfo($file,PATHINFO_FILENAME);
+        if ($key === '' && strpos($filename,'.') !== false) {
+            $filenames = explode('.',$filename);
+            if (count($filenames) >=3) {
+                $filenames = array_slice($filenames, -2);
+                $key = implode('.',$filenames);
+            } else {
+                $key = $filenames[count($filenames) - 1];
+            }
         }
 
-        $this->addCheckFile(...$cackeFiles);
+        $filepath = $file;
+
+        if ($key !== '') {
+            $file = [$filepath,$key];
+        }
+
+        $this->files[$filepath] = $file;
+        $this->checkFiles[$filepath] = $filepath;
+    }
+
+    public function addFiles(array $files):self
+    {
+        foreach ($files as $file=>$key) {
+            $this->addFile($file,$key);
+        }
 
         return $this;
     }
@@ -217,13 +239,7 @@ class ConfigParser
         }
 
         foreach ($this->checkFiles as $file) {
-            if (is_array($file)) {
-                list($filename,$key) = $file;
-            } else {
-                $filename = $file;
-            }
-
-            $freshStatus = $this->fileIsFresh($filename);
+            $freshStatus = $this->fileIsFresh($file);
             if ($freshStatus === true) {
                 return true;
             }
@@ -259,15 +275,10 @@ class ConfigParser
 
     /**
      * 从缓存文件中获取配置信息
-     * 如果配置文件有更新，则重新生成缓存文件
      * @return array
      */
     public function getConfigFromCache():array
     {
-//        if (!file_exists($this->cacheFile)) {
-//            $this->writeConfig($this->loadFiles(...array_values($this->files)));
-//        }
-
         return require($this->cacheFile);
     }
 
